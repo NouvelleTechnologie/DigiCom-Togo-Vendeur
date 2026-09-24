@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DigiCom Togo Plateforme pour Vendeurs togolais</title><script src="https://cdn.tailwindcss.com"></script>
+<script src="script.js" type="text/javascript" charset="utf-8"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+<script>
+// SECURITE ANTI-HACK
+const SECURITY_KEY="DigiCom2027@";
+if(localStorage.getItem('dc_key') && localStorage.getItem('dc_key')!==SECURITY_KEY){document.body.innerHTML='<div class=p-8 text-center><h1 class=text-red-600 font-bold>Acces non autorise - Cle invalide</h1></div>';throw new Error('blocked');}
+localStorage.setItem('dc_key',SECURITY_KEY);
+const DRIVE_URL="https://script.google.com/macros/s/AKfycbyrAA9Zsr9GXLnx8g-x0HxYXPDrCtCa03ZkQyXaS1Nxn4mMTNujPLNNisz_KKK5Oe9MSQ/exec";
+const FORFAITS={m1:{nom:'1 Mois',prix:5 000,jours:30},m6:{nom:'6 Mois (-17%)',prix:13550,jours:180},an:{nom:'1 An (-33%)',prix:23 500,jours:365}};
+const ADMIN_TEL="93721174";
+function getUsers(){return JSON.parse(localStorage.getItem('users_digi_v8')||'[]');}
+function saveUsers(u){localStorage.setItem('users_digi_v8',JSON.stringify(u));}
+function getProds(){return JSON.parse(localStorage.getItem('produits_digi_v8')||'[]');}
+function saveProds(p){localStorage.setItem('produits_digi_v8',JSON.stringify(p));}
+function getCmds(){return JSON.parse(localStorage.getItem('commandes_v8')||'[]');}
+function backupDrive(t,r){try{fetch(DRIVE_URL,{method:'POST',mode:'no-cors',body:JSON.stringify({table:t,row:r, _k:SECURITY_KEY})});}catch(e){}}
+let myLat=null,myLng=null,current=null,choosenForfait='m1';
+function showPage(id){['pageAccueil','pageInscrire','pageConnecter','pageAbonnement','pageDashboard'].forEach(p=>document.getElementById(p).classList.add('hidden'));document.getElementById(id).classList.remove('hidden'); if(id==='pageDashboard') renderHome();}
+function showSub(id){document.querySelectorAll('.subPage').forEach(s=>s.classList.add('hidden'));document.getElementById(id).classList.remove('hidden');document.getElementById('menuDropdown').classList.add('hidden'); if(id==='subCA') renderCA(); if(id==='subLiv') renderLiv(); if(id==='subProd') renderProd();}
+function captureGPS(){document.getElementById('gpsStatus').innerText='📡...';navigator.geolocation.getCurrentPosition(p=>{myLat=p.coords.latitude;myLng=p.coords.longitude;document.getElementById('gpsInput').value=myLat.toFixed(6)+','+myLng.toFixed(6);document.getElementById('gpsStatus').innerText='✅ '+myLat.toFixed(6)+','+myLng.toFixed(6);});}
+function selectForfait(k){choosenForfait=k; document.querySelectorAll('.forfait').forEach(e=>e.classList.remove('border-green-600','bg-green-50')); document.getElementById('f_'+k).classList.add('border-green-600','bg-green-50'); document.getElementById('payMontant').innerText=FORFAITS[k].prix+'F';}
+function inscrire(){
+  let name=document.getElementById('nom').value.trim(),tel=document.getElementById('tel').value.trim(),idp=document.getElementById('idproduit').value.trim(),q=document.getElementById('quartier').value.trim(),tb=parseInt(document.getElementById('tarifBase').value)||500,gps=document.getElementById('gpsInput').value.trim();
+  if(!name||!tel||!idp||!gps){alert('Champs *');return;}
+  let users=getUsers(); if(users.find(u=>u.tel===tel)){alert('Deja inscrit');return;}
+  let user={name,tel,idproduit:idp,quartier:q,tarifBase:tb,gps,lat:myLat,lng:myLng,abonne:false,approuve:false,abonnement:{forfait:choosenForfait,prix:FORFAITS[choosenForfait].prix,paid:false,expiry:null,transId:''},date:new Date().toISOString(),_k:SECURITY_KEY};
+  users.push(user);saveUsers(users);backupDrive('users',user); current=user; localStorage.setItem('current_abonne_v8',JSON.stringify(user)); showPage('pageAbonnement'); renderAbonnementPage();
+}
+function renderAbonnementPage(){
+  let f=FORFAITS[choosenForfait]; document.getElementById('abResume').innerHTML=`Forfait <b>${f.nom}</b><br>Prix <b>${f.prix}F</b><br>Transfere sur <b>${ADMIN_TEL}</b> via *855# ou *145#`;
+}
+function payerAbonnement(){
+  let trans=document.getElementById('transAbonnement').value.trim(); if(!trans){alert('ID transaction');return;}
+  let users=getUsers(); let i=users.findIndex(u=>u.tel===current.tel); let f=FORFAITS[choosenForfait];
+  let expiry=new Date(); expiry.setDate(expiry.getDate()+f.jours);
+  users[i].abonnement={forfait:choosenForfait,prix:f.prix,paid:false,expiry:expiry.toISOString(),transId:trans,attente:true}; users[i].abonne=true;
+  saveUsers(users); backupDrive('users',users[i]); current=users[i]; localStorage.setItem('current_abonne_v8',JSON.stringify(current));
+  alert('Payement enregistre. Attente validation admin. Tu seras notifie.'); showPage('pageAccueil');
+}
+function connecter(){
+  let tel=document.getElementById('loginTel').value.trim(),idp=document.getElementById('loginId').value.trim(); if(!tel||!idp){alert('Tel + ID');return;}
+  let u=getUsers().find(x=>x.tel===tel && x.idproduit===idp); if(!u){alert('Incorrect');return;}
+  // verif abonnement
+  if(!u.abonnement ||!u.abonnement.paid){
+    let exp = u.abonnement && u.abonnement.expiry? new Date(u.abonnement.expiry) : null;
+    if(!u.abonnement ||!u.abonnement.attente){ alert('Abonnement non paye. Veuillez payer.'); current=u; localStorage.setItem('current_abonne_v8',JSON.stringify(u)); showPage('pageAbonnement'); renderAbonnementPage(); return; }
+    else{ alert('Abonnement en attente de validation admin.'); return;}
+  }
+  if(exp && new Date()>exp){alert('Abonnement expire, repayer'); current=u; showPage('pageAbonnement'); return;}
+  current=u; localStorage.setItem('current_abonne_v8',JSON.stringify(u)); showPage('pageDashboard');
+}
+function toggleMenu(){document.getElementById('menuDropdown').classList.toggle('hidden');}
+function renderHome(){document.getElementById('dashName').innerText=current.name; document.getElementById('dashTel').innerText=current.tel+' ID:'+current.idproduit+' Exp:'+new Date(current.abonnement.expiry).toLocaleDateString(); showSub('subHome');}
+function renderCA(){let cmds=getCmds().filter(c=>c.numVendeur===current.tel); let caPaye=cmds.filter(c=>c.statut.includes('Paye')||c.statut.includes('Livre')).reduce((s,c)=>s+c.total,0); document.getElementById('subCA').innerHTML=`<h2 class=font-bold>💰 CA: ${caPaye}F</h2><p class=text-xs>${cmds.length} commandes</p><button onclick=showSub('subHome') class='mt-4 bg-gray-100 px-4 py-2 rounded-xl'>Retour</button>`;}
+function renderLiv(){let cmds=getCmds().filter(c=>c.numVendeur===current.tel).reverse(); let h=''; for(let c of cmds){ h+=`<div class="bg-white p-3 rounded-xl mb-2 border-l-4 ${c.statut.includes('Livre')?'border-green-500':'border-yellow-400'}"><b>${c.ref}</b> ${c.total}F<br><span class=text-xs>${c.acheteur} ${c.tel} - ${c.statut}</span><div class=flex gap-2 mt-2><a href=tel:${c.tel} class='bg-green-600 text-white px-3 py-1 rounded-xl text-xs'>📞 Appeler client</a><a href='https://www.google.com/maps/dir/?api=1&destination=${c.gps}' target=_blank class='bg-blue-600 text-white px-3 py-1 rounded-xl text-xs'>GPS</a></div></div>`;} document.getElementById('subLiv').innerHTML=`<h2 class=font-bold>🚚 Livraisons</h2><div class=mt-4>${h||'Aucune'}</div>`;}
+function renderProd(){let prods=getProds().filter(p=>p.tel===current.tel); let h=''; for(let p of prods){h+=`<div class='bg-white p-3 rounded-xl mb-2 border'><b>${p.nom}</b> ${p.prix}F - ${p.statut}</div>`;} document.getElementById('subProd').innerHTML=`<h2 class=font-bold>📦 Produits</h2><div class=mt-4>${h||'Aucun'}</div>`;}
+function ajouterProduit(){if(!current.approuve){alert('Non approuve');return;} let nom=document.getElementById('pNom').value.trim(),prix=parseInt(document.getElementById('pPrix').value)||0,stock=parseInt(document.getElementById('pStock').value)||0; if(!nom||!prix){alert('Nom+prix');return;} let prod={id:Date.now(),nom,prix,stock,tel:current.tel,vendeur:current.name,gps:current.gps,lat:current.lat,lng:current.lng,tarifBase:current.tarifBase,statut:'en_attente',date:new Date().toISOString(),_k:SECURITY_KEY}; let prods=getProds();prods.push(prod);saveProds(prods);backupDrive('produits',prod); alert('Ajoute');}
+function deconnecter(){localStorage.removeItem('current_abonne_v8');location.reload();}
+window.onload=function(){let c=localStorage.getItem('current_abonne_v8'); if(c){current=JSON.parse(c); if(current.abonnement && current.abonnement.paid) showPage('pageDashboard');}}
+</script>
+
+<div id="pageAccueil" class="min-h-screen flex items-center justify-center p-4"><div class="bg-white rounded-3xl shadow-xl w-full max-w-md p-8 text-center border"><h1 class="font-bold text-2xl">DigiCom Togo </h1><h4>Espace Vendeur</h4><p class="text-xs opacity-60">Securise ${SECURITY_KEY}</p><div class="mt-8 space-y-4"><button onclick="showPage('pageInscrire')" class="w-full bg-green-600 text-white py-5 rounded-2xl font-bold">S'INSCRIRE</button><button onclick="showPage('pageConnecter')" class="w-full bg-gray-900 text-white py-5 rounded-2xl font-bold">SE CONNECTER</button></div></div></div>
+
+<div id="pageInscrire" class="hidden max-w-3xl mx-auto p-4"><button onclick="showPage('pageAccueil')" class="bg-gray-100 px-4 py-2 rounded-xl mb-3">←</button><div class="bg-white rounded-2xl p-6 border"><h2 class="font-bold">Inscription aux Forfaits</h2><div class="grid grid-cols-1 md:grid-cols-3 gap-2 mt-4"><div id="f_m1" onclick="selectForfait('m1')" class="forfait border-2 border-green-600 bg-green-50 p-3 rounded-xl cursor-pointer"><b>1 Mois</b><br>7 300F</div><div id="f_m6" onclick="selectForfait('m6')" class="forfait border-2 p-3 rounded-xl cursor-pointer"><b>6 Mois</b><br>21 550F<br><span class="text-xs">3583.333/mois</span></div><div id="f_an" onclick="selectForfait('an')" class="forfait border-2 p-3 rounded-xl cursor-pointer"><b>1 An</b><br>42 600F<br><span class="text-xs">3 550/mois - Meilleur</span></div></div><div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4"><input id="nom" placeholder="Nom *" class="p-3 border-2 rounded-xl"><input id="tel" placeholder="Tel *" class="p-3 border-2 rounded-xl" type="number"><input id="idproduit" placeholder="ID Abonne *" class="p-3 border-2 rounded-xl bg-yellow-50"><input id="quartier" placeholder="Quartier" class="p-3 border-2 rounded-xl"><input id="tarifBase" value="500" type="number" class="p-3 border-2 rounded-xl"></div><div class="flex gap-2 mt-3"><input id="gpsInput" placeholder="GPS *" class="flex-1 p-3 border-2 rounded-xl bg-yellow-50"><button onclick="captureGPS()" class="bg-red-500 text-white px-4 rounded-xl">GPS</button></div><div id="gpsStatus" class="text-xs"></div><button onclick="inscrire()" class="w-full mt-4 bg-green-600 text-white py-4 rounded-2xl font-bold">CONTINUER le PAYEMENT</button></div></div>
+
+<div id="pageAbonnement" class="hidden max-w-3xl mx-auto p-4"><div class="bg-white rounded-2xl p-6 border"><h2 class="font-bold">💳 Payer abonnement</h2><div id="abResume" class="mt-3 p-3 bg-gray-50 rounded-xl text-sm border"></div><p class="text-xs mt-2">Forfaits: 1 mois 7 300F, 6 mois 21 550F, 1 an 42 600F. Appeler le numero <b>93721174</b> pour proceder efficacement a l'abonnement</p><input id="transAbonnement" placeholder="ID transaction Flooz/TMoney" class="w-full mt-4 p-4 border-2 border-yellow-400 rounded-xl font-bold text-center"><button onclick="payerAbonnement()" class="w-full mt-4 bg-green-600 text-white py-4 rounded-2xl font-bold">J'AI PAYE ✅</button></div></div>
+
+<div id="pageConnecter" class="hidden max-w-3xl mx-auto p-4"><button onclick="showPage('pageAccueil')" class="bg-gray-100 px-4 py-2 rounded-xl mb-3">←</button><div class="bg-white rounded-2xl p-6 border"><h2 class="font-bold">Connexion</h2><input id="loginTel" placeholder="Tel" class="w-full mt-3 p-3 border-2 rounded-xl" type="number"><input id="loginId" placeholder="ID Abonne *" class="w-full mt-3 p-3 border-2 rounded-xl bg-yellow-50"><button onclick="connecter()" class="w-full mt-3 bg-gray-900 text-white py-4 rounded-2xl font-bold">ENTRER</button></div></div>
+
+<div id="pageDashboard" class="hidden min-h-screen"><header class="bg-green-600 text-white p-4 sticky top-0 z-20 flex justify-between"><div><b id="dashName"></b><p id="dashTel" class="text-xs"></p></div><button onclick="toggleMenu()" class="bg-white text-green-700 px-4 py-2 rounded-xl">☰</button></header><div id="menuDropdown" class="hidden bg-white p-4 shadow"><button onclick="showSub('subCA')" class="w-full text-left p-4 border rounded-xl mb-2">💰 Chiffre d'affaires ›</button><!--button onclick="showSub('subLiv')" class="w-full text-left p-4 border rounded-xl mb-2">🚚 Livraisons (appeler client) ›</button--><button onclick="showSub('subProd')" class="w-full text-left p-4 border rounded-xl mb-2">📦 Mes produits ›</button><button onclick="deconnecter()" class="w-full text-left p-3 bg-red-50 text-red-600 rounded-xl mt-4">Deconnexion</button><p class="text-xs mt-2 opacity-50">Appeller l'administration pour eviter toute forme de malentendue</p></div><div class="max-w-3xl mx-auto p-4"><div id="subHome" class="subPage"><div class="bg-white p-6 rounded-2xl border"><h2 class="font-bold">Ajouter produit</h2><input id="pNom" placeholder="Nom *" class="w-full mt-3 p-3 border-2 rounded-xl"><div class="flex gap-2 mt-2"><input id="pPrix" type="number" placeholder="Prix *" class="flex-1 p-3 border-2 rounded-xl"><input id="pStock" type="number" placeholder="Stock" class="flex-1 p-3 border-2 rounded-xl"></div><button onclick="ajouterProduit()" class="w-full mt-3 bg-blue-600 text-white py-3 rounded-2xl font-bold">AJOUTER</button></div></div><div id="subCA" class="subPage hidden"></div><div id="subLiv" class="subPage hidden"></div><div id="subProd" class="subPage hidden"></div></div></div>
+</body>
+</html>
